@@ -1,3 +1,7 @@
 .DS_Store
 data/*
 .ipynb_checkpoints
+modeling/train.csv
+processing/train.csv
+processing/train_for_2012.csv
+processing/test_for_2012.csv
