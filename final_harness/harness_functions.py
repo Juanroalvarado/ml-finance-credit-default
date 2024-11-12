@@ -127,7 +127,7 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
         
         # Calculate percentage change for the growth feature
         growth_feature_name = f"{field}_growth"
-        growth_features = df.groupby(id_col)[field].pct_change()
+        growth_features = concat_df.groupby(id_col)[field].pct_change()
 
         df = df.join(growth_features.to_frame(growth_feature_name), how='left')
         if 'is_first_occurrence' not in df.columns:
