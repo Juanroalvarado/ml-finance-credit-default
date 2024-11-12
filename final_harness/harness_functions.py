@@ -121,16 +121,17 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
     else:
         # join historical and testing data frame
         # Sort by ID and date to calculate growth correctly
-        concat_df = pd.concat([df, historical_df], ignore_index=True).sort_values(by=[id_col, date_col])
+        concat_df = pd.concat([df, historical_df]).sort_values(by=[id_col, date_col])
 
         concat_df['is_first_occurrence'] = (concat_df['id'] != concat_df['id'].shift()).astype(int)
         
         # Calculate percentage change for the growth feature
         growth_feature_name = f"{field}_growth"
-        growth_features = df.groupby(id_col)[field].pct_change()
+        growth_features = concat_df.groupby(id_col)[field].pct_change()
 
         df = df.join(growth_features.to_frame(growth_feature_name), how='left')
-        df = df.join(concat_df[['is_first_occurrence']], how='left')
+        if 'is_first_occurrence' not in df.columns:
+            df = df.join(concat_df[['is_first_occurrence']], how='left')
 
         
         
@@ -195,7 +196,7 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
 
     # Calculate net income growth by ID and sort by statement date
     df['net_income'] = df['profit']
-    df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='net_income')
+    df = create_growth_features(df, historical_df = historical_df, new=new, id_col='id', date_col='stmt_date', field='net_income')
     df, preproc_params = make_quantiles(df, field='net_income_growth', custom_bins=custom_bins, num_quantiles=quantiles, new=new, preproc_params=preproc_params)
 
     # Calculate Quick Ratio Version 2
@@ -206,7 +207,7 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
 
     # Calculate sales growth by ID and sort by statement date
     df['sales'] = df['rev_operating']
-    df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='sales')
+    df = create_growth_features(df, historical_df = historical_df, new=new, id_col='id', date_col='stmt_date', field='sales')
     df, preproc_params = make_quantiles(df, field='sales_growth', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
 
     # Calculate cash-assets ratio
