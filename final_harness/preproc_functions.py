@@ -5,7 +5,6 @@ import seaborn as sns
 import pickle
 
 import warnings
-
 def calculate_default_within_year(df, stmt_date_col='stmt_date', def_date_col='def_date', days_until_statement=150):
     """
     Calculate a default status within an adjusted timeframe and create a column indicating this in the DataFrame.
@@ -38,47 +37,47 @@ def calculate_default_within_year(df, stmt_date_col='stmt_date', def_date_col='d
 def make_quantiles(df, field, num_quantiles=4, custom_bins = {}, new_column_name=None, new=True, preproc_params = None):
     """
     Creates a new column in the DataFrame indicating the quantile for each row based on a specified field.
-    
+   
     Parameters:
     - df (pd.DataFrame): The input DataFrame.
     - field (str): The column name of the field to compute quantiles for.
     - num_quantiles (int): The number of quantiles to divide the field into (default is 4 for quartiles).
     - new_column_name (str): The name for the new column to store the quantile information.
                              If None, defaults to '{field}_quantile'.
-    
+   
     Returns:
     - pd.DataFrame: The DataFrame with the new quantile column added.
     """
      # Set the new column name if not provided
     if new_column_name is None:
         new_column_name = f"{field}_quantile"
-        
+       
     if new:
         if new_column_name in custom_bins:
             print(f'Custom bins for {new_column_name}')
             bins = custom_bins[new_column_name]
-            bins = [-np.inf]+bins+[np.inf]
-            
-            data_to_cut = df[field].replace([np.inf, -np.inf], [df[field][np.isfinite(df[field])].max(), df[field][np.isfinite(df[field])].min()])
+            bins = [-np.inf]+bins[1:-1]+[np.inf]
+           
+            data_to_cut = df[field]#.replace([np.inf, -np.inf], [df[field][np.isfinite(df[field])].max(), df[field][np.isfinite(df[field])].min()])
             cut = pd.cut(data_to_cut, bins=bins, labels=False, duplicates = 'drop', include_lowest=True) + 1  # Adding 1 to make quantiles start from 1
         else:
-            
-            data_to_cut = df[field].replace([np.inf, -np.inf], [df[field][np.isfinite(df[field])].max(), df[field][np.isfinite(df[field])].min()])
+           
+            data_to_cut = df[field]#.replace([np.inf, -np.inf], [df[field][np.isfinite(df[field])].max(), df[field][np.isfinite(df[field])].min()])
             cut, bins = pd.qcut(data_to_cut, q=num_quantiles, labels=False, retbins=True, duplicates = 'drop')
-            bins = [-np.inf]+bins.tolist()+[np.inf]
+            bins = [-np.inf]+bins.tolist()[1:-1]+[np.inf]
 
             cut = pd.cut(data_to_cut, bins=bins, labels=False, duplicates = 'drop', include_lowest=True) + 1  # Adding 1 to make quantiles start from 1
-    
-        
+   
+       
         # Calculate the quantiles and create the new column
         df[new_column_name] = cut
         prob_values = df.groupby(cut)[['default']].mean()
-        
+       
         df[f'{new_column_name}_values'] = cut.to_frame().merge(prob_values, on=field, how='left')['default'].fillna(0.01).values
 
         preproc_params['quantile_bins'][new_column_name] = bins
         preproc_params['quantile_values'][new_column_name] = prob_values
-        
+       
     else:
         print(new_column_name)
         bins = preproc_params['quantile_bins'][new_column_name]
@@ -90,8 +89,38 @@ def make_quantiles(df, field, num_quantiles=4, custom_bins = {}, new_column_name
         # print(prob_values)
         df[new_column_name] = cut
         df[f'{new_column_name}_values'] = cut.to_frame().merge(prob_values, on=field, how='left')['default'].fillna(0.01).values
-        
+       
     return df, preproc_params
+
+def calculate_conditional_pd_for_categorical(df, field, default_col='default', preproc_params=None):
+    """
+    Calculate the conditional probability of default for each unique category in a categorical field.
+    
+    Parameters:
+    - df (pd.DataFrame): The input DataFrame.
+    - field (str): The categorical column name for which to calculate conditional PD.
+    - default_col (str): The column name for the default indicator (1 for default, 0 for non-default).
+    
+    Returns:
+    - pd.DataFrame: The DataFrame with a new column for conditional PD values by category.
+    """
+    # Create a new column name for storing default probabilities
+    prob_column_name = f"{field}_pd"
+    
+    # Calculate the default probability for each unique category
+    category_default_prob = df.groupby(field)[default_col].mean()
+    
+    # Map the default probability to each row based on its category
+    df[prob_column_name] = df[field].map(category_default_prob)
+    
+    # Optionally store the probabilities in preproc_params if needed for later
+    if preproc_params is not None:
+        preproc_params[f'{field}_pd_values'] = category_default_prob
+    
+    return df
+
+# Example usage
+# df, preproc_params = calculate_conditional_pd_for_categorical(df, field='your_categorical_field', preproc_params=preproc_params)
 
 def create_growth_features(df, id_col, date_col, field,  historical_df = None, new=True, ):
     """
@@ -132,8 +161,6 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
         df = df.join(growth_features.to_frame(growth_feature_name), how='left')
         if 'is_first_occurrence' not in df.columns:
             df = df.join(concat_df[['is_first_occurrence']], how='left')
-
-        
         
         # Fill missing values (first occurrence per group) with 0
         # df[growth_feature].fillna(0, inplace=True)
@@ -167,6 +194,88 @@ def data_imputation(df):
                                  else 1 if row['rev_operating'] == 0 and row['ebitda'] <= 0
                                  else row['rev_operating'], axis=1)
     df['rev_operating'] = df['rev_operating'].fillna(df['ebitda']).fillna(1)
+
+    #make unique city id for 
+    df['HQ_city'] = df['HQ_city'].fillna(1000.0)
+    
+    return df
+
+def add_sector_group(df, sector_col='ateco_sector', new_col='sector_group'):
+    """
+    Adds a 'sector_group' column to the DataFrame based on grouped sector mappings for sector codes.
+    
+    Parameters:
+    - df (pd.DataFrame): DataFrame containing the sector codes.
+    - sector_col (str): Column name for sector codes in the DataFrame (default is 'sector_code').
+    - new_col (str): Column name for the new sector group mapping (default is 'sector_group').
+
+    Returns:
+    - pd.DataFrame: DataFrame with an additional 'sector_group' column.
+    """
+    # Define grouped sector mappings
+    grouped_sectors = {
+        'Construction and Real Estate': [41.0, 42.0, 43.0, 68.0, 71.0, 81.0],
+        'Materials and Fabrication': [7.0, 8.0, 16.0, 17.0, 19.0, 20.0, 22.0, 23.0, 24.0, 25.0, 37.0, 38.0, 39.0, 46.0],
+        'Machinery and Equipment': [26.0, 27.0, 28.0, 31.0, 33.0, 52.0],
+        'Automobiles and Transport': [29.0, 30.0, 45.0, 49.0, 50.0, 51.0, 53.0],
+        'Consumer Products and Retail': [10.0, 11.0, 12.0, 13.0, 14.0, 47.0, 55.0, 56.0],
+        'Technology, Media, and Telecommunications (TMT)': [58.0, 59.0, 60.0, 61.0, 62.0, 63.0],
+        'Energy and Utilities': [5.0, 6.0, 35.0, 36.0],
+        'Healthcare and Social Services': [21.0, 86.0, 87.0, 88.0],
+        'Services and Professional Activities': [69.0, 70.0, 72.0, 73.0, 74.0, 77.0, 78.0, 79.0],
+        'Mixed-Industry Sectors': [1.0, 2.0, 3.0, 90.0, 91.0, 92.0, 93.0, 94.0, 99.0]
+    }
+    
+    # Reverse mapping from sector codes to group names
+    sector_code_to_group = {code: group for group, codes in grouped_sectors.items() for code in codes}
+    
+    # Map the sector codes in the DataFrame to sector groups
+    df[new_col] = df[sector_col].map(sector_code_to_group).fillna('Unknown')  # Assign 'Unknown' if no match found
+    
+    return df
+
+def add_region_group(df, province_col='HQ_city', new_col='regional_code'):
+    """
+    Adds a 'regional_code' column to the DataFrame based on grouped region mappings for province codes.
+    
+    Parameters:
+    - df (pd.DataFrame): DataFrame containing the province codes.
+    - province_col (str): Column name for province codes in the DataFrame.
+    - new_col (str): Column name for the new region group mapping (default is 'regional_code').
+
+    Returns:
+    - pd.DataFrame: DataFrame with an additional 'regional_code' column.
+    """
+    # Define grouped region mappings
+    grouped_regions = {
+        '1': [1, 2, 3, 4, 5, 6, 96, 103],
+        '2': [7],
+        '3': [108, 98, 20, 19, 18, 17, 15, 16, 14, 13, 12, 97],
+        '4': [21, 22],
+        '5': [28, 29, 27, 26, 25, 24, 23],
+        '6': [30, 25, 31, 32, 93],
+        '7': [11, 10, 8, 9],
+        '8': [39, 41, 99, 40, 38, 33, 36, 35, 34, 37],
+        '9': [52, 100, 53, 50, 51, 48, 49, 47, 46, 45],
+        '10': [54, 55],
+        '11': [41, 42, 43, 44, 109],
+        '12': [60, 58, 59, 56, 57],
+        '13': [66, 67, 68, 69],
+        '14': [70, 94],
+        '15': [61, 62, 63, 64, 65],
+        '16': [75, 110, 74, 71, 72, 73],
+        '17': [76, 77],
+        '18': [78, 79, 80, 101, 102],
+        '19': [89, 88, 87, 86, 84, 83, 82, 81, 85],
+        '20': [106, 104, 90, 91, 105, 92, 95, 107]
+    }
+
+    
+    # Create a reverse mapping from province code to region code
+    province_to_region_mapping = {province: region for region, provinces in grouped_regions.items() for province in provinces}
+    
+    # Map the province codes in the DataFrame to region codes
+    df[new_col] = df[province_col].map(province_to_region_mapping).fillna('Unknown')  # Assign 'Unknown' if no match found
     
     return df
 
@@ -197,12 +306,12 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
     # Calculate profitability ratio
     df['profitability_ratio'] = df['profit'] / df['asst_tot']
     df, preproc_params = make_quantiles(df, field='profitability_ratio', custom_bins=custom_bins, num_quantiles=quantiles, new=new, preproc_params=preproc_params)
-
+    #doe roe too
     df, preproc_params = make_quantiles(df, field='roe', custom_bins=custom_bins, num_quantiles=quantiles, new=new, preproc_params=preproc_params)
-
+    
     # Calculate net income growth by ID and sort by statement date
     df['net_income'] = df['profit']
-    df = create_growth_features(df, historical_df = historical_df, new=new, id_col='id', date_col='stmt_date', field='net_income')
+    df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='net_income', new=new)
     df, preproc_params = make_quantiles(df, field='net_income_growth', custom_bins=custom_bins, num_quantiles=quantiles, new=new, preproc_params=preproc_params)
 
     # Calculate Quick Ratio Version 2
@@ -213,7 +322,7 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
 
     # Calculate sales growth by ID and sort by statement date
     df['sales'] = df['rev_operating']
-    df = create_growth_features(df, historical_df = historical_df, new=new, id_col='id', date_col='stmt_date', field='sales')
+    df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='sales', new=new)
     df, preproc_params = make_quantiles(df, field='sales_growth', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
 
     # Calculate cash-assets ratio
@@ -226,6 +335,15 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
     df['exp_financing'] = df['exp_financing'].fillna(10000)
     df['dscr'] = df['ebitda'] / df['exp_financing']
     df, preproc_params = make_quantiles(df, field='dscr', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
+
+    #handle sector data
+    df = add_sector_group(df)
+    df = calculate_conditional_pd_for_categorical(df, field='ateco_sector', default_col='default')
+    df = calculate_conditional_pd_for_categorical(df, field='sector_group', default_col='default')
     
+    #do cities
+    df = add_region_group(df)
+    df = calculate_conditional_pd_for_categorical(df, field='regional_code', default_col='default')
 
     return df, preproc_params
+

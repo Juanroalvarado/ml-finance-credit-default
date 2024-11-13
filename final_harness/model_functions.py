@@ -2,7 +2,7 @@ import statsmodels.formula.api as smf
 from pandas import concat
 
 class SplitModel():
-    def __init__(self, algo):
+    def __init__(self, algo, first_features, rec_features):
         self.first_formula = 'default ~ '+' + '.join(first_features)
         self.rec_formula = 'default ~ '+' + '.join(rec_features)
 
@@ -16,6 +16,7 @@ class SplitModel():
         self.first_model = self.algo(self.first_formula, data = first_data)
         self.first_fitted_model = self.first_model.fit()
 
+        # if len(rec_data)!=0:
         self.rec_model = self.algo(self.rec_formula, data = rec_data)
         self.rec_fitted_model = self.rec_model.fit()
         print("models fit")
