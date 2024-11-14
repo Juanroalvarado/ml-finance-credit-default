@@ -5,6 +5,7 @@ import seaborn as sns
 import pickle
 
 import warnings
+
 def calculate_default_within_year(df, stmt_date_col='stmt_date', def_date_col='def_date', days_until_statement=150):
     """
     Calculate a default status within an adjusted timeframe and create a column indicating this in the DataFrame.
@@ -122,9 +123,10 @@ def calculate_conditional_pd_for_categorical(df, field, default_col='default', p
 # Example usage
 # df, preproc_params = calculate_conditional_pd_for_categorical(df, field='your_categorical_field', preproc_params=preproc_params)
 
+
 def create_growth_features(df, id_col, date_col, field,  historical_df = None, new=True, ):
     """
-    Creates a growth feature and its quantiles based on percentage change in the specified field, 
+    Creates a growth feature and its quantiles based on percentage change in the specified field,
     grouped by ID and sorted by date.
 
     Parameters:
@@ -138,13 +140,13 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
     """
     if new:
         df = df.sort_values(by=[id_col, date_col])
-    
+   
         # Calculate percentage change for the growth feature
         growth_feature = f"{field}_growth"
         df[growth_feature] = df.groupby(id_col)[field].pct_change()
-        
+       
         # Fill missing values (first occurrence per group) with 0
-        df[growth_feature] = df[growth_feature].fillna(0)
+        df[growth_feature].fillna(0, inplace=True)
 
         df['is_first_occurrence'] = (df['id'] != df['id'].shift()).astype(int)
     else:
@@ -153,51 +155,20 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
         concat_df = pd.concat([df, historical_df]).sort_values(by=[id_col, date_col])
 
         concat_df['is_first_occurrence'] = (concat_df['id'] != concat_df['id'].shift()).astype(int)
-        
+       
         # Calculate percentage change for the growth feature
         growth_feature_name = f"{field}_growth"
         growth_features = concat_df.groupby(id_col)[field].pct_change()
 
         df = df.join(growth_features.to_frame(growth_feature_name), how='left')
+        
         if 'is_first_occurrence' not in df.columns:
             df = df.join(concat_df[['is_first_occurrence']], how='left')
-        
+
+       
+       
         # Fill missing values (first occurrence per group) with 0
-        # df[growth_feature].fillna(0, inplace=True)
-    return df
-
-def data_imputation(df):
-    # Condition to check if EBITDA is missing or zero and prof_operations is not
-    df['ebitda'] = np.where((df['ebitda'].isna() | (df['ebitda'] == 0)) & df['prof_operations'].notna() & (df['prof_operations'] != 0),
-                            df['prof_operations'], df['ebitda'])
-
-    # Condition to check if prof_operations is missing or zero and EBITDA is not
-    df['prof_operations'] = np.where((df['prof_operations'].isna() | (df['prof_operations'] == 0)) & df['ebitda'].notna() & (df['ebitda'] != 0),
-                                     df['ebitda'], df['prof_operations'])
-    
-    # if we have operating profit, and profit shows 0, set to operating profit instead
-    df['profit'] = df.apply(lambda row: 1 if row['profit'] == 0 and row['prof_operations'] == 0
-                            else row['prof_operations'] if row['profit'] == 0 and row['prof_operations'] != 0
-                            else row['profit'], axis=1)
-    #if all else fails, impute ebitda based on ratio of total assets
-    df['ebitda'] = df['ebitda'].fillna(df['asst_tot'] * 0.05)
-    df['cash_and_equiv'] = df['cash_and_equiv'].fillna(df['asst_tot'] * 0.05)
-    df['profit'] = df['profit'].fillna(0.01)
-
-    #do roe
-    df['roe'] = df['profit'] / df['eqty_tot']
-    df['roe'] = df['roe'].fillna(0)
-
-    # Define if we have ebitda and operating rev is 0, set to ebitda
-    df['rev_operating'] = df.apply(lambda row: 
-                                 row['ebitda'] if row['rev_operating'] == 0 and row['ebitda'] > 0 
-                                 else 1 if row['rev_operating'] == 0 and row['ebitda'] <= 0
-                                 else row['rev_operating'], axis=1)
-    df['rev_operating'] = df['rev_operating'].fillna(df['ebitda']).fillna(1)
-
-    #make unique city id for 
-    df['HQ_city'] = df['HQ_city'].fillna(1000.0)
-    
+        df[growth_feature_name].fillna(0, inplace=True)
     return df
 
 def add_sector_group(df, sector_col='ateco_sector', new_col='sector_group'):
@@ -278,6 +249,52 @@ def add_region_group(df, province_col='HQ_city', new_col='regional_code'):
     df[new_col] = df[province_col].map(province_to_region_mapping).fillna('Unknown')  # Assign 'Unknown' if no match found
     
     return df
+def data_imputation(df):
+    # Condition to check if EBITDA is missing or zero and prof_operations is not
+    df['ebitda'] = np.where((df['ebitda'].isna() | (df['ebitda'] == 0)) & df['prof_operations'].notna() & (df['prof_operations'] != 0),
+                            df['prof_operations'], df['ebitda'])
+
+    # Condition to check if prof_operations is missing or zero and EBITDA is not
+    df['prof_operations'] = np.where((df['prof_operations'].isna() | (df['prof_operations'] == 0)) & df['ebitda'].notna() & (df['ebitda'] != 0),
+                                     df['ebitda'], df['prof_operations'])
+    
+    # if we have operating profit, and profit shows 0, set to operating profit instead
+    df['profit'] = df.apply(lambda row: 1 if row['profit'] == 0 and row['prof_operations'] == 0
+                            else row['prof_operations'] if row['profit'] == 0 and row['prof_operations'] != 0
+                            else row['profit'], axis=1)
+    #if all else fails, impute ebitda based on ratio of total assets
+    df['ebitda'] = df['ebitda'].fillna(df['asst_tot'] * 0.05)
+    df['cash_and_equiv'] = df['cash_and_equiv'].fillna(df['asst_tot'] * 0.05)
+    df['profit'] = df['profit'].fillna(0.01)
+
+    #do roe
+    df['roe'] = df['profit'] / df['eqty_tot']
+    df['roe'] = df['roe'].fillna(0)
+
+    # Define if we have ebitda and operating rev is 0, set to ebitda
+    df['rev_operating'] = df.apply(lambda row: 
+                                 row['ebitda'] if row['rev_operating'] == 0 and row['ebitda'] > 0 
+                                 else 1 if row['rev_operating'] == 0 and row['ebitda'] <= 0
+                                 else row['rev_operating'], axis=1)
+    df['rev_operating'] = df['rev_operating'].fillna(df['ebitda']).fillna(1)
+
+    #make unique city id for 
+    df['HQ_city'] = df['HQ_city'].fillna(1000.0)
+
+    #set AR to 0 if not present
+    df['AR'] = df['AR'].fillna(0)
+    #set asst_tot to eqty_tot if not present, else set to 0
+    df['asst_tot'] = np.where(df['asst_tot'].isna() | (df['asst_tot'] == 0), df['eqty_tot'], df['asst_tot'])
+    df['asst_tot'] = df['asst_tot'].fillna(0)
+    df['eqty_tot'] = df['eqty_tot'].fillna(0)
+    #set debt_st or debt_lt to 0 if na
+    df['debt_st'] = df['debt_st'].fillna(0)
+    df['debt_lt'] = df['debt_lt'].fillna(0)
+
+
+    
+    return df
+
 
 def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_params = None, quantiles = 10, days_until_statement = 150):
     """
@@ -344,6 +361,16 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
     #do cities
     df = add_region_group(df)
     df = calculate_conditional_pd_for_categorical(df, field='regional_code', default_col='default')
+
+    #do cfo
+    df['liab_st'] = df['liab_tot'] - df['liab_lt']
+    df['cfo'] = df.apply(lambda row: 100 if row['liab_st'] == 0 else row['cf_operations'] / row['liab_st'], axis=1)
+    df, preproc_params = make_quantiles(df, field='cfo', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
+
+    #do legal_struct
+    df = calculate_conditional_pd_for_categorical(df, field='legal_struct', default_col='default')
+
+
 
     return df, preproc_params
 
