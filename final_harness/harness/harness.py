@@ -13,13 +13,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some named arguments.")
     
     # Define the named arguments
-    parser.add_argument('--input', type=str, required=True,)
-    parser.add_argument('--output', type=str, required=True)
+    parser.add_argument('--input_csv', type=str, required=True,)
+    parser.add_argument('--output_csv', type=str, required=True)
     
     args = parser.parse_args()
     
-    input_path = args.input
-    output_path = args.output
+    input_path = args.input_csv
+    output_path = args.output_csv
     print(input_path)
     print(output_path)
 
