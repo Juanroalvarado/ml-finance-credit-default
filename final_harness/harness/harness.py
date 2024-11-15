@@ -1,9 +1,8 @@
 import pandas as pd
 import pickle
 
-from model_functions import SplitModel
+from xgb_model_functions import SplitModel
 from preproc_functions import pre_process
-from statsmodels.iolib.smpickle import load_pickle
 
 import sys
 import argparse
@@ -30,15 +29,14 @@ if __name__ == "__main__":
     # custom bins for certain featured
     with open('model_objs/custom_bins.pkl', 'rb') as inp:
         custom_bins = pickle.load(inp)
-    # bin PDs from historical
+
     with open('model_objs/preproc_params.pkl', 'rb') as inp:
         preproc_params = pickle.load(inp)
-    # # trained model
-    print('Loading trained model')
-    # with open('first_model.pkl', 'rb') as inp:
-    #     trained_model = pickle.load(inp)
-    trained_model = load_pickle('model_objs/trained_model.pkl')
-
+    
+    with open('model_objs/trained_model.pkl', 'rb') as inp:
+        trained_model = pickle.load(inp)
+    print('Loaded trained model')
+    
     # read and process holdout
     holdout_df = pd.read_csv(input_path,index_col=0)
 

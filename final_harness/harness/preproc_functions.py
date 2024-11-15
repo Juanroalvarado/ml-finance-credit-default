@@ -92,7 +92,7 @@ def make_quantiles(df, field, num_quantiles=4, custom_bins = {}, new_column_name
        
     return df, preproc_params
 
-def calculate_conditional_pd_for_categorical(df, field, default_col='default', preproc_params=None):
+def calculate_conditional_pd_for_categorical(df, field, default_col='default', new=True, preproc_params=None):
     """
     Calculate the conditional probability of default for each unique category in a categorical field.
     
@@ -104,27 +104,31 @@ def calculate_conditional_pd_for_categorical(df, field, default_col='default', p
     Returns:
     - pd.DataFrame: The DataFrame with a new column for conditional PD values by category.
     """
-    # Create a new column name for storing default probabilities
-    prob_column_name = f"{field}_pd"
+    if new:
+        # Create a new column name for storing default probabilities
+        prob_column_name = f"{field}_pd"
+        
+        # Calculate the default probability for each unique category
+        category_default_prob = df.groupby(field)[default_col].mean()
+        
+        # Map the default probability to each row based on its category
+        df[prob_column_name] = df[field].map(category_default_prob)
+        
+        # Optionally store the probabilities in preproc_params if needed for later
+        
+        preproc_params['category_pd'][f'{field}_pd_values'] = category_default_prob
+    else:
+        print(f'using training pds for {field}')
+        category_default_prob = preproc_params['category_pd'][f'{field}_pd_values']
+        df[f'{field}_pd'] = df[field].map(category_default_prob).fillna(0.01)
     
-    # Calculate the default probability for each unique category
-    category_default_prob = df.groupby(field)[default_col].mean()
-    
-    # Map the default probability to each row based on its category
-    df[prob_column_name] = df[field].map(category_default_prob)
-    
-    # Optionally store the probabilities in preproc_params if needed for later
-    if preproc_params is not None:
-        preproc_params[f'{field}_pd_values'] = category_default_prob
-    
-    return df
+    return df, preproc_params
 
 # Example usage
 # df, preproc_params = calculate_conditional_pd_for_categorical(df, field='your_categorical_field', preproc_params=preproc_params)
-
 def create_growth_features(df, id_col, date_col, field,  historical_df = None, new=True, ):
     """
-    Creates a growth feature and its quantiles based on percentage change in the specified field, 
+    Creates a growth feature and its quantiles based on percentage change in the specified field,
     grouped by ID and sorted by date.
 
     Parameters:
@@ -138,13 +142,13 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
     """
     if new:
         df = df.sort_values(by=[id_col, date_col])
-    
+   
         # Calculate percentage change for the growth feature
         growth_feature = f"{field}_growth"
         df[growth_feature] = df.groupby(id_col)[field].pct_change()
-        
+       
         # Fill missing values (first occurrence per group) with 0
-        df[growth_feature] = df[growth_feature].fillna(0)
+        df[growth_feature].fillna(0, inplace=True)
 
         df['is_first_occurrence'] = (df['id'] != df['id'].shift()).astype(int)
     else:
@@ -153,17 +157,20 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
         concat_df = pd.concat([df, historical_df]).sort_values(by=[id_col, date_col])
 
         concat_df['is_first_occurrence'] = (concat_df['id'] != concat_df['id'].shift()).astype(int)
-        
+       
         # Calculate percentage change for the growth feature
         growth_feature_name = f"{field}_growth"
         growth_features = concat_df.groupby(id_col)[field].pct_change()
 
         df = df.join(growth_features.to_frame(growth_feature_name), how='left')
+        
         if 'is_first_occurrence' not in df.columns:
             df = df.join(concat_df[['is_first_occurrence']], how='left')
-        
+
+       
+       
         # Fill missing values (first occurrence per group) with 0
-        # df[growth_feature].fillna(0, inplace=True)
+        df[growth_feature_name].fillna(0, inplace=True)
     return df
 
 def data_imputation(df):
@@ -197,6 +204,18 @@ def data_imputation(df):
 
     #make unique city id for 
     df['HQ_city'] = df['HQ_city'].fillna(1000.0)
+
+    #set AR to 0 if not present
+    df['AR'] = df['AR'].fillna(0)
+    #set asst_tot to eqty_tot if not present, else set to 0
+    df['asst_tot'] = np.where(df['asst_tot'].isna() | (df['asst_tot'] == 0), df['eqty_tot'], df['asst_tot'])
+    df['asst_tot'] = df['asst_tot'].fillna(0)
+    df['eqty_tot'] = df['eqty_tot'].fillna(0)
+    #set debt_st or debt_lt to 0 if na
+    df['debt_st'] = df['debt_st'].fillna(0)
+    df['debt_lt'] = df['debt_lt'].fillna(0)
+
+
     
     return df
 
@@ -338,12 +357,21 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
 
     #handle sector data
     df = add_sector_group(df)
-    df = calculate_conditional_pd_for_categorical(df, field='ateco_sector', default_col='default')
-    df = calculate_conditional_pd_for_categorical(df, field='sector_group', default_col='default')
+    df, preproc_params = calculate_conditional_pd_for_categorical(df, field='ateco_sector', default_col='default' ,new=new, preproc_params=preproc_params)
+    df, preproc_params = calculate_conditional_pd_for_categorical(df, field='sector_group', default_col='default',new=new, preproc_params=preproc_params)
     
     #do cities
     df = add_region_group(df)
-    df = calculate_conditional_pd_for_categorical(df, field='regional_code', default_col='default')
+    df, preproc_params = calculate_conditional_pd_for_categorical(df, field='regional_code', default_col='default', new=new, preproc_params=preproc_params)
+
+    #do cfo
+    df['liab_st'] = df['liab_tot'] - df['liab_lt']
+    df['cfo'] = df.apply(lambda row: 100 if row['liab_st'] == 0 else row['cf_operations'] / row['liab_st'], axis=1)
+    df, preproc_params = make_quantiles(df, field='cfo', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
+
+    #do legal_struct
+    df, preproc_params = calculate_conditional_pd_for_categorical(df, field='legal_struct', default_col='default',new=new,preproc_params=preproc_params)
+
+
 
     return df, preproc_params
-
