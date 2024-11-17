@@ -148,29 +148,30 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
         df[growth_feature] = df.groupby(id_col)[field].pct_change()
        
         # Fill missing values (first occurrence per group) with 0
-        df[growth_feature].fillna(0, inplace=True)
+        df[growth_feature] = df[growth_feature].fillna(0)
 
-        df['is_first_occurrence'] = (df['id'] != df['id'].shift()).astype(int)
+        df['is_first_occurrence'] = (df[id_col] != df[id_col].shift()).astype(int).values
     else:
         # join historical and testing data frame
         # Sort by ID and date to calculate growth correctly
         concat_df = pd.concat([df, historical_df]).sort_values(by=[id_col, date_col])
 
-        concat_df['is_first_occurrence'] = (concat_df['id'] != concat_df['id'].shift()).astype(int)
+        concat_df['is_first_occurrence'] = (concat_df[id_col] != concat_df[id_col].shift()).astype(int).values
        
         # Calculate percentage change for the growth feature
         growth_feature_name = f"{field}_growth"
-        growth_features = concat_df.groupby(id_col)[field].pct_change()
+        concat_df[growth_feature_name] = concat_df.groupby(id_col)[field].pct_change().values
 
-        df = df.join(growth_features.to_frame(growth_feature_name), how='left')
+        df = df.merge(concat_df[[growth_feature_name, id_col,date_col]], on=[id_col,date_col], how='left')
         
         if 'is_first_occurrence' not in df.columns:
-            df = df.join(concat_df[['is_first_occurrence']], how='left')
+            # df = df.join(concat_df[['is_first_occurrence']], how='left')
+            df = df.merge(concat_df[['is_first_occurrence', id_col,date_col]], on=[id_col,date_col], how='left')
 
        
        
         # Fill missing values (first occurrence per group) with 0
-        df[growth_feature_name].fillna(0, inplace=True)
+        df[growth_feature_name] = df[growth_feature_name].fillna(0)
     return df
 
 def data_imputation(df):
