@@ -1,4 +1,4 @@
-import statsmodels.formula.api as smf
+from xgboost import XGBClassifier
 from pandas import concat, Series
 
 
@@ -26,18 +26,19 @@ class SplitModel():
         print("models fitted")
 
     def predict(self, data):
+        data['prediction_index'] = range(0, len(data))
         rec_data = data[data['is_first_occurrence']==0]
         first_data = data[data['is_first_occurrence']==1]
         print('rec data length',len(rec_data))
         print('first data length',len(first_data))
         
         rec_preds = Series(self.rec_fitted_model.predict_proba(rec_data[self.rec_features])[:,1])
-        rec_preds.index = rec_data.index
+        rec_preds.index = rec_data.prediction_index
         
         first_preds = Series(self.first_fitted_model.predict_proba(first_data[self.first_features])[:,1])
-        first_preds.index = first_data.index
+        first_preds.index = first_data.prediction_index
 
-        predictions = concat([rec_preds,first_preds]).reindex(data.index)
+        predictions = concat([rec_preds,first_preds]).reindex(data.prediction_index)
         
         return predictions
 

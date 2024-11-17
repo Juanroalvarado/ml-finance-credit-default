@@ -1,4 +1,4 @@
-import statsmodels.formula.api as smf
+from xgboost import XGBClassifier
 from pandas import concat, Series
 
 
