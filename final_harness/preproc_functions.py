@@ -385,7 +385,7 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
     df, preproc_params = make_quantiles(df, field='cfo', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
 
     #do legal_struct
-    # df, preproc_params = calculate_conditional_pd_for_categorical(df, field='legal_struct', default_col='default',new=new,preproc_params=preproc_params)
+    df, preproc_params = calculate_conditional_pd_for_categorical(df, field='legal_struct', default_col='default',new=new,preproc_params=preproc_params)
     df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', fields=['sales','net_income'], new=new)
     df, preproc_params = make_quantiles(df, field='net_income_growth', custom_bins=custom_bins, num_quantiles=quantiles, new=new, preproc_params=preproc_params)
     df, preproc_params = make_quantiles(df, field='sales_growth', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
