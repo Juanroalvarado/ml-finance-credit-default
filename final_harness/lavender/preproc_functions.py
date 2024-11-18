@@ -124,7 +124,7 @@ def calculate_conditional_pd_for_categorical(df, field, default_col='default', n
     
     return df, preproc_params
 
-def create_growth_features(df, id_col, date_col, field,  historical_df = None, new=True, ):
+def create_growth_features(df, id_col, date_col, fields = [],  historical_df = None, new=True, ):
     """
     Creates a growth feature and its quantiles based on percentage change in the specified field,
     grouped by ID and sorted by date.
@@ -138,38 +138,42 @@ def create_growth_features(df, id_col, date_col, field,  historical_df = None, n
     Returns:
     - pd.DataFrame: DataFrame with the growth feature and its quantiles added.
     """
+    print(f'calc growth features')
     if new:
         df = df.sort_values(by=[id_col, date_col])
    
         # Calculate percentage change for the growth feature
-        growth_feature = f"{field}_growth"
-        df[growth_feature] = df.groupby(id_col)[field].pct_change()
-       
-        # Fill missing values (first occurrence per group) with 0
-        df[growth_feature] = df[growth_feature].fillna(0)
+        pct_change_df = df.groupby(id_col)[fields].pct_change().fillna(0)
+        # Rename columns to indicate they are percentage changes
+        pct_change_df = pct_change_df.rename(columns=lambda x: f"{x}_growth")
+        
+        # Add the percentage change columns back to the original DataFrame
+        df = pd.concat([df, pct_change_df], axis=1)
 
-        df['is_first_occurrence'] = (df[id_col] != df[id_col].shift()).astype(int).values
+        # df['is_first_occurrence'] = (df[id_col] != df[id_col].shift()).astype(int).values
+        df['is_first_occurrence'] = (df.groupby(id_col).cumcount() == 0).astype(int)
     else:
+        historical_df['is_holdout'] = 0
+        df['is_holdout'] = 1
         # join historical and testing data frame
         # Sort by ID and date to calculate growth correctly
-        concat_df = pd.concat([df, historical_df]).sort_values(by=[id_col, date_col])
+        df = pd.concat([df, historical_df[[id_col,date_col,]+fields]]).sort_values(by=[id_col, date_col])
 
-        concat_df['is_first_occurrence'] = (concat_df[id_col] != concat_df[id_col].shift()).astype(int).values
+        # concat_df['is_first_occurrence'] = (concat_df[id_col] != concat_df[id_col].shift()).astype(int).values
+        df['is_first_occurrence'] = (df.groupby(id_col).cumcount() == 0).astype(int)
        
         # Calculate percentage change for the growth feature
-        growth_feature_name = f"{field}_growth"
-        concat_df[growth_feature_name] = concat_df.groupby(id_col)[field].pct_change().values
+        pct_change_df = df.groupby(id_col)[fields].pct_change().fillna(0)
+        # Rename columns to indicate they are percentage changes
+        pct_change_df = pct_change_df.rename(columns=lambda x: f"{x}_growth")
 
-        df = df.merge(concat_df[[growth_feature_name, id_col,date_col]], on=[id_col,date_col], how='left')
+        df = pd.concat([df, pct_change_df], axis=1)
+
+        df = df[df['is_holdout']==1]
         
-        if 'is_first_occurrence' not in df.columns:
-            # df = df.join(concat_df[['is_first_occurrence']], how='left')
-            df = df.merge(concat_df[['is_first_occurrence', id_col,date_col]], on=[id_col,date_col], how='left')
-
-       
-       
-        # Fill missing values (first occurrence per group) with 0
-        df[growth_feature_name] = df[growth_feature_name].fillna(0)
+        # if 'is_first_occurrence' not in df.columns:
+        #     # df = df.join(concat_df[['is_first_occurrence']], how='left')
+        #     df = df.merge(concat_df[['is_first_occurrence', id_col,date_col]], on=[id_col,date_col], how='left')
     return df
 
 def data_imputation(df):
@@ -338,8 +342,8 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
     
     # Calculate net income growth by ID and sort by statement date
     df['net_income'] = df['profit']
-    df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='net_income', new=new)
-    df, preproc_params = make_quantiles(df, field='net_income_growth', custom_bins=custom_bins, num_quantiles=quantiles, new=new, preproc_params=preproc_params)
+    # df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='net_income', new=new)
+    
 
     # Calculate Quick Ratio Version 2
     df['quick_ratio_v2'] = np.where(df['debt_st'] == 0, 100, (df['cash_and_equiv'] + df['AR']) / df['debt_st'])
@@ -349,8 +353,8 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
 
     # Calculate sales growth by ID and sort by statement date
     df['sales'] = df['rev_operating']
-    df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='sales', new=new)
-    df, preproc_params = make_quantiles(df, field='sales_growth', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
+    # df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', field='sales', new=new)
+    
 
     # Calculate cash-assets ratio
     df['cash_assets_ratio'] = df['cash_and_equiv'] / df['asst_tot']
@@ -381,8 +385,10 @@ def pre_process(df, historical_df=None, custom_bins = None, new=True, preproc_pa
     df, preproc_params = make_quantiles(df, field='cfo', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
 
     #do legal_struct
-    df, preproc_params = calculate_conditional_pd_for_categorical(df, field='legal_struct', default_col='default',new=new,preproc_params=preproc_params)
-
+    # df, preproc_params = calculate_conditional_pd_for_categorical(df, field='legal_struct', default_col='default',new=new,preproc_params=preproc_params)
+    df = create_growth_features(df, historical_df = historical_df, id_col='id', date_col='stmt_date', fields=['sales','net_income'], new=new)
+    df, preproc_params = make_quantiles(df, field='net_income_growth', custom_bins=custom_bins, num_quantiles=quantiles, new=new, preproc_params=preproc_params)
+    df, preproc_params = make_quantiles(df, field='sales_growth', num_quantiles=quantiles, new=new, preproc_params=preproc_params)
 
 
     return df, preproc_params
